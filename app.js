@@ -6,6 +6,7 @@ const config = require('./utils/config')
 const mongoose = require('mongoose')
 const blogRouter = require('./controllers/blog')
 const morgan = require("morgan");
+const middleware = require('./utils/middleware')
 
 morgan.token("data", function(req, res) {
   return JSON.stringify(req.body);
@@ -31,5 +32,8 @@ app.use(cors())
 app.use(bodyParser.json())
 
 app.use('/api/blogs', blogRouter)
+
+app.use(middleware.errorHandler)
+app.use(middleware.unknownEndpoint)
 
 module.exports = app
