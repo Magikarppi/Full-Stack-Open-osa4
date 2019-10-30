@@ -1,62 +1,91 @@
-const blogRouter = require('express').Router()
-const Blog = require('../models/blog')
-const errorHandler = require('../utils/middleware')
+const blogRouter = require("express").Router();
+const Blog = require("../models/blog");
+const User = require("../models/user");
+const jwt = require("jsonwebtoken");
 
-blogRouter.get('/', (request, response, next) => {
-    Blog
-      .find({})
-      .then(blogs => {
-        response.json(blogs.map(blog => blog.toJSON()))
-      })
-      .catch(error => next(error))
-  })
-  
-  blogRouter.post('/', (request, response, next) => {
-    const blog = new Blog(request.body)
+blogRouter.get("/", async (request, response, next) => {
+  try {
+    const blogs = await Blog.find({}).populate("user", {
+      username: 1,
+      name: 1
+    });
+    response.json(blogs.map(blog => blog.toJSON()));
+  } catch (exception) {
+    next(exception);
+  }
+});
 
-    if (blog.likes === undefined) {
-      Object.assign(blog, { likes: 0 })
+blogRouter.post("/", async (request, response, next) => {
+  try {
+    const decodedToken = jwt.verify(request.token, process.env.SECRET);
+    if (!request.token || !decodedToken.id) {
+      return response.status(401).json({ error: "token missing or invalid" });
     }
-  
-    blog
-      .save()
-      .then(result => {
-        response.status(201).json(result)
-      })
-      .catch((error) => {
-        next(error)
-        // console.log(error)
-        // response.status(400).json(error)
-      })
-  })
 
-  blogRouter.delete('/:id', async (request, response) => {
-    try {
-      await Blog.findByIdAndRemove(request.params.id)
-      response.status(204).end()
-    } catch (exception) {
-      next(exception)
-      // response.status(400).json({ error: error.message })
-    }
-  })
+    const user = await User.findById(decodedToken.id);
 
-  blogRouter.put('/:id', async (request, response) => {
-    const blog = {
+    const blog = new Blog({
       title: request.body.title,
       author: request.body.author,
       url: request.body.url,
-      likes: request.body.likes
+      likes: request.body.likes,
+      user: user._id
+    });
+
+    if (blog.likes === undefined) {
+      Object.assign(blog, { likes: 0 });
     }
 
-    try {
-      const updatedBlog = await Blog.findByIdAndUpdate(request.params.id, blog, {
-        new: true,
-        omitUndefined: true
-      })
-      response.json(updatedBlog.toJSON())
-    } catch (exception) {
-      next(exception)
-    }
-  })
+    const savedBlog = await blog.save();
+    user.blogs = user.blogs.concat(savedBlog._id);
+    await user.save();
+    response.status(201).json(savedBlog.toJSON());
+  } catch (exception) {
+    next(exception);
+  }
+});
 
-  module.exports = blogRouter
+blogRouter.delete("/:id", async (request, response, next) => {
+  try {
+    const decodedToken = jwt.verify(request.token, process.env.SECRET);
+    if (!request.token || !decodedToken.id) {
+      return response.status(401).json({ error: "token missing or invalid" });
+    }
+
+    const blog = await Blog.findById(request.params.id);
+
+    if (blog.user.toString() === decodedToken.id.toString()) {
+      await Blog.findByIdAndRemove(request.params.id);
+      return response.status(204).end();
+    } else {
+      return response
+        .status(401)
+        .json({
+          error: "A blog can be deleted only by the user that posted it"
+        });
+    }
+  } catch (exception) {
+    next(exception);
+  }
+});
+
+blogRouter.put("/:id", async (request, response) => {
+  const blog = {
+    title: request.body.title,
+    author: request.body.author,
+    url: request.body.url,
+    likes: request.body.likes
+  };
+
+  try {
+    const updatedBlog = await Blog.findByIdAndUpdate(request.params.id, blog, {
+      new: true,
+      omitUndefined: true
+    });
+    response.json(updatedBlog.toJSON());
+  } catch (exception) {
+    next(exception);
+  }
+});
+
+module.exports = blogRouter;
